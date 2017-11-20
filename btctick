@@ -1,0 +1,174 @@
+#!/usr/bin/env python3.6
+
+# Quick-and-dirty cryptocurrency ticker
+# Copyright (c) 2017 Christopher Harrison
+# MIT License
+
+import json
+import os
+import typing as T
+from abc import ABCMeta, abstractmethod
+from enum import Enum
+from functools import reduce
+from http.client import HTTPSConnection
+from urllib.parse import urlparse
+
+
+class Crypto(Enum):
+    """ Mapping of cryptocurrency symbols to API path component """
+    BTC = "bitcoin"
+    ETH = "ethereum"
+    LTC = "litecoin"
+
+class Fiat(Enum):
+    """ Mapping of fiat currency symbols to API query string component """
+    USD = "USD"
+    EUR = "EUR"
+    GBP = "GBP"
+
+
+class UnicodeArrow(Enum):
+    """ Unicode arrows """
+    Up = "\u25b2"
+    Down = "\u25bc"
+
+
+class APIResponse(T.NamedTuple):
+    crypto_symbol:Crypto
+    fiat_symbol:Fiat
+    rate:float
+    change:float
+
+class APIResponseDecoder(json.JSONDecoder):
+    def decode(self, s:str) -> APIResponse:
+        decoded = json.loads(s)[0]
+
+        fiat_symbols = [k[-3:]
+                        for k in decoded.keys()
+                        if k.startswith("price_")
+                        and not k.endswith("btc")]
+
+        fiat_symbol = reduce(
+            lambda a,b: b if b != "usd" else a,
+            fiat_symbols,
+            "usd"
+        )
+
+        fiat_price_key = f"price_{fiat_symbol}"
+
+        return APIResponse(
+            crypto_symbol=getattr(Crypto, decoded["symbol"]),
+            fiat_symbol=getattr(Fiat, fiat_symbol.upper()),
+            rate=float(decoded[fiat_price_key]),
+            change=float(decoded["percent_change_1h"])
+        )
+
+
+class Formatter(metaclass=ABCMeta):
+    @property
+    @abstractmethod
+    def failure(self) -> str:
+        """ String to return in the event of failure """
+
+    @abstractmethod
+    def format(self, price_data:APIResponse) -> str:
+        """ Formatted price data """
+
+class TtyFormatter(Formatter):
+    _default:T.ClassVar[str] = "\033[0m"
+    _up:T.ClassVar[str] = "\033[32m"
+    _down:T.ClassVar[str] = "\033[31m"
+
+    @property
+    def failure(self) -> str:
+        return "Couldn't get data"
+
+    def format(self, price_data:APIResponse) -> str:
+        change_str = ""
+        if price_data.change > 0:
+            change_str += f"{self._up}{UnicodeArrow.Up.value}"
+        elif price_data.change < 0:
+            change_str += f"{self._down}{UnicodeArrow.Down.value}"
+        change_str += f" {price_data.change:.2f}%{self._default}"
+
+        return f"{price_data.fiat_symbol.name}/{price_data.crypto_symbol.name} {price_data.rate:.2f} {change_str}"
+
+class TmuxFormatter(Formatter):
+    _default:str
+    _up:str
+    _down:str
+
+    def __init__(self, default_colour:int, up_colour:int, down_colour:int) -> None:
+        self._default = f"#[fg=colour{default_colour}]"
+        self._up = f"#[fg=colour{up_colour}]"
+        self._down = f"#[fg=colour{down_colour}]"
+
+    @property
+    def failure(self) -> str:
+        return "Couldn't get data"
+
+    def format(self, price_data:APIResponse) -> str:
+        change_str = ""
+        if price_data.change > 0:
+            change_str += f"{self._up}{UnicodeArrow.Up.value}"
+        elif price_data.change < 0:
+            change_str += f"{self._down}{UnicodeArrow.Down.value}"
+        change_str += f" {price_data.change:.2f}%{self._default}"
+
+        return f"{price_data.fiat_symbol.name}/{price_data.crypto_symbol.name} {price_data.rate:.2f} {change_str}"
+        return str(price_data)
+
+
+class Ticker(object):
+    _crypto:Crypto
+    _fiat:Fiat
+    _api:str
+    _formatter:Formatter
+
+    def __init__(self, crypto:Crypto = Crypto.BTC, fiat:Fiat = Fiat.USD, formatter:T.Optional[Formatter] = None) -> None:
+        self._crypto = crypto
+        self._fiat = fiat
+        self._api = f"https://api.coinmarketcap.com/v1/ticker/{crypto.value}/?convert={fiat.value}"
+        self._formatter = formatter or TtyFormatter()
+
+    def _get_data(self) -> APIResponse:
+        parsed = urlparse(self._api)
+        host = parsed.netloc
+        url = f"{parsed.path}?{parsed.query}"
+
+        try:
+            conn = HTTPSConnection(host)
+            conn.request("GET", url)
+            response = conn.getresponse()
+
+            if 400 <= response.status < 600:
+                raise Exception(f"HTTP {response.status}: {response.reason}")
+
+            if response.getheader("Content-Type") != "application/json":
+                raise Exception(f"Didn't get JSON")
+
+            return json.loads(response.read(), cls=APIResponseDecoder)
+
+        finally:
+            conn.close()
+
+    @property
+    def price(self) -> str:
+        fiat_key = f"price_{self._fiat.value.lower()}"
+
+        try:
+            price_data = self._get_data()
+        except:
+            return self._formatter.failure
+
+        return self._formatter.format(price_data)
+
+
+if __name__ == "__main__":
+    if os.isatty(0):
+        formatter = TtyFormatter()
+    else:
+        formatter = TmuxFormatter(3, 106, 160)
+
+    ticker = Ticker(Crypto.BTC, Fiat.GBP, formatter)
+    print(ticker.price)
