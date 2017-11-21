@@ -113,7 +113,7 @@ class TmuxFormatter(Formatter):
             change_str += f"{self._up}{UnicodeArrow.Up.value}"
         elif price_data.change < 0:
             change_str += f"{self._down}{UnicodeArrow.Down.value}"
-        change_str += f" {price_data.change:.2f}%{self._default}"
+        change_str += f" {abs(price_data.change):.2f}%{self._default}"
 
         return f"{price_data.fiat_symbol.name}/{price_data.crypto_symbol.name} {price_data.rate:.2f} {change_str}"
         return str(price_data)
