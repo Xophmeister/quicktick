@@ -1,18 +1,23 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
+"""
+Quick-and-dirty cryptocurrency ticker
 
-# Quick-and-dirty cryptocurrency ticker
-# Copyright (c) 2017 Christopher Harrison
-# MIT License
+Copyright (c) 2017 Christopher Harrison
+MIT License
+"""
 
 import json
 import os
 import typing as T
 from abc import ABCMeta, abstractmethod
+from configparser import ConfigParser
 from enum import Enum
 from functools import reduce
-from http.client import HTTPSConnection
-from urllib.parse import urlparse
+from http.client import HTTPConnection, HTTPSConnection
+from urllib.parse import ParseResult, urlparse
 
+
+# FIXME These enumerations are still coupled to the CoinMarketCap API
 
 class Crypto(Enum):
     """ Mapping of cryptocurrency symbols to API path component """
@@ -27,148 +32,191 @@ class Fiat(Enum):
     GBP = "GBP"
 
 
-class UnicodeArrow(Enum):
-    """ Unicode arrows """
-    Up = "\u25b2"
-    Down = "\u25bc"
+JSON = T.Union[str, bytes]
 
+class Request(object):
+    """ HTTP client interface for templated requests """
+    # Map connection classes to schemes
+    _conn_types:T.ClassVar[T.Dict[str, T.Type[HTTPConnection]]] = {
+        "http":  HTTPConnection,
+        "https": HTTPSConnection
+    }
 
-class APIResponse(T.NamedTuple):
-    crypto_symbol:Crypto
-    fiat_symbol:Fiat
-    rate:float
-    change:float
+    _url_components:ParseResult
 
-class APIResponseDecoder(json.JSONDecoder):
-    def decode(self, s:str) -> APIResponse:
-        decoded = json.loads(s)[0]
+    def __init__(self, url_template:str) -> None:
+        self._url_components = urlparse(url_template)
 
-        fiat_symbols = [k[-3:]
-                        for k in decoded.keys()
-                        if k.startswith("price_")
-                        and not k.endswith("btc")]
-
-        fiat_symbol = reduce(
-            lambda a,b: b if b != "usd" else a,
-            fiat_symbols,
-            "usd"
-        )
-
-        fiat_price_key = f"price_{fiat_symbol}"
-
-        return APIResponse(
-            crypto_symbol=getattr(Crypto, decoded["symbol"]),
-            fiat_symbol=getattr(Fiat, fiat_symbol.upper()),
-            rate=float(decoded[fiat_price_key]),
-            change=float(decoded["percent_change_1h"])
-        )
-
-
-class Formatter(metaclass=ABCMeta):
-    @property
-    @abstractmethod
-    def failure(self) -> str:
-        """ String to return in the event of failure """
-
-    @abstractmethod
-    def format(self, price_data:APIResponse) -> str:
-        """ Formatted price data """
-
-class TtyFormatter(Formatter):
-    _default:T.ClassVar[str] = "\033[0m"
-    _up:T.ClassVar[str] = "\033[32m"
-    _down:T.ClassVar[str] = "\033[31m"
-
-    @property
-    def failure(self) -> str:
-        return "Couldn't get data"
-
-    def format(self, price_data:APIResponse) -> str:
-        change_str = ""
-        if price_data.change > 0:
-            change_str += f"{self._up}{UnicodeArrow.Up.value}"
-        elif price_data.change < 0:
-            change_str += f"{self._down}{UnicodeArrow.Down.value}"
-        change_str += f" {price_data.change:.2f}%{self._default}"
-
-        return f"{price_data.fiat_symbol.name}/{price_data.crypto_symbol.name} {price_data.rate:.2f} {change_str}"
-
-class TmuxFormatter(Formatter):
-    _default:str
-    _up:str
-    _down:str
-
-    def __init__(self, default_colour:int, up_colour:int, down_colour:int) -> None:
-        self._default = f"#[fg=colour{default_colour}]"
-        self._up = f"#[fg=colour{up_colour}]"
-        self._down = f"#[fg=colour{down_colour}]"
-
-    @property
-    def failure(self) -> str:
-        return "Couldn't get data"
-
-    def format(self, price_data:APIResponse) -> str:
-        change_str = ""
-        if price_data.change > 0:
-            change_str += f"{self._up}{UnicodeArrow.Up.value}"
-        elif price_data.change < 0:
-            change_str += f"{self._down}{UnicodeArrow.Down.value}"
-        change_str += f" {abs(price_data.change):.2f}%{self._default}"
-
-        return f"{price_data.fiat_symbol.name}/{price_data.crypto_symbol.name} {price_data.rate:.2f} {change_str}"
-        return str(price_data)
-
-
-class Ticker(object):
-    _crypto:Crypto
-    _fiat:Fiat
-    _api:str
-    _formatter:Formatter
-
-    def __init__(self, crypto:Crypto = Crypto.BTC, fiat:Fiat = Fiat.USD, formatter:T.Optional[Formatter] = None) -> None:
-        self._crypto = crypto
-        self._fiat = fiat
-        self._api = f"https://api.coinmarketcap.com/v1/ticker/{crypto.value}/?convert={fiat.value}"
-        self._formatter = formatter or TtyFormatter()
-
-    def _get_data(self) -> APIResponse:
-        parsed = urlparse(self._api)
-        host = parsed.netloc
-        url = f"{parsed.path}?{parsed.query}"
+    def fetch(self, **params) -> JSON:
+        """
+        Fetch raw JSON from the URL expanded with the specified parameters
+        """
+        url = self._url_components
+        path = url.path + "?" + url.query
 
         try:
-            conn = HTTPSConnection(host)
-            conn.request("GET", url)
+            conn = Request._conn_types[url.scheme](url.netloc)
+            conn.request("GET", path.format(**params))
             response = conn.getresponse()
 
             if 400 <= response.status < 600:
                 raise Exception(f"HTTP {response.status}: {response.reason}")
 
             if response.getheader("Content-Type") != "application/json":
-                raise Exception(f"Didn't get JSON")
+                raise Exception(f"Response wasn't JSON data")
 
-            return json.loads(response.read(), cls=APIResponseDecoder)
+            return response.read()
 
         finally:
             conn.close()
 
-    @property
-    def price(self) -> str:
-        fiat_key = f"price_{self._fiat.value.lower()}"
 
+class PriceData(T.NamedTuple):
+    """ Model for encapsulating price data """
+    crypto_symbol:Crypto  # Crypto symbol
+    fiat_symbol:Fiat      # Fiat symbol
+    rate:float            # Fiat/crypto exchange rate
+    change:float          # Recent percentage change
+
+
+class BaseTicker(metaclass=ABCMeta):
+    """ Abtract base ticker """
+    @abstractmethod
+    def get_price(self) -> PriceData:
+        """ Get the current price data """
+
+    @abstractmethod
+    def __str__(self) -> str:
+        """ Return the string representation of the current price data """
+
+
+class Formatter(T.Callable[[PriceData], str]):
+    """ Price data formatter """
+    _template:str
+    _change_templates:T.Tuple[str, str, str]  # Up; Stable; Down
+    _failure:str
+
+    def __init__(self, template:str, change_templates:T.Tuple[str, str, str], failure:str = "Couldn't get data") -> None:
+        self._template = template
+        self._change_templates = change_templates
+        self._failure = failure
+
+    def __call__(self, price_data:PriceData) -> str:
+        """
+        Expand the templates with the given price data
+
+        Main tags:
+        * crypto       Cryptocurrency symbol
+        * fiat         Fiat symbol
+        * rate         Exchange rate
+        * change       Change string
+
+        Change string tags:
+        * change       (Absolute) percentage change
+        """
+        change_template = self._change_templates[0] if price_data.change > 0 \
+                     else self._change_templates[2] if price_data.change < 0 \
+                     else self._change_templates[1]
+
+        change = change_template.format(change=abs(price_data.change))
+
+        return self._template.format(
+            crypto = price_data.crypto_symbol.name,
+            fiat   = price_data.fiat_symbol.name,
+            rate   = price_data.rate,
+            change = change)
+
+    @property
+    def failure(self) -> str:
+        """ Returned in the event of failure """
+        return self._failure
+
+simple_formatter = Formatter(
+    "{crypto}/{fiat} {rate:.2f} ({change}%)",
+    ("+{change:.2f}", "0.00", "-{change:.2f}"))
+
+
+class CoinMarketCapDecoder(json.JSONDecoder):
+    """ CoinMarketCap JSON response decoder """
+    def decode(self, j:JSON) -> PriceData:
+        # We only want the first element in the array
+        decoded = json.loads(j)[0]
+
+        # There's always a "price_usd" key; if we've requested a
+        # different fiat conversion, there will also be a "price_SYMBOL"
+        # key and we can extract the SYMBOL from that
+        fiat_symbol = reduce(
+            lambda a, b: b if b != "usd" else a, [
+                k[-3:]
+                for k in decoded.keys()
+                if k.startswith("price_")
+                and not k.endswith("btc")
+            ], "usd")
+
+        fiat_price_key = f"price_{fiat_symbol}"
+
+        return PriceData(
+            crypto_symbol = getattr(Crypto, decoded["symbol"]),
+            fiat_symbol   = getattr(Fiat, fiat_symbol.upper()),
+            rate          = float(decoded[fiat_price_key]),
+            change        = float(decoded["percent_change_1h"]))
+
+class CoinMarketCapTicker(BaseTicker):
+    """ Ticker for CoinMarketCap """
+    _api:T.ClassVar[Request] = Request(
+        "https://api.coinmarketcap.com/v1/ticker/{crypto}/?convert={fiat}")
+
+    _crypto:Crypto
+    _fiat:Fiat
+    _formatter:Formatter
+
+    def __init__(self, crypto:Crypto = Crypto.BTC, fiat:Fiat = Fiat.USD, formatter:T.Optional[Formatter] = None) -> None:
+        self._crypto = crypto
+        self._fiat = fiat
+        self._formatter = formatter or simple_formatter
+
+    def get_price(self) -> PriceData:
+        price_json = CoinMarketCapTicker._api.fetch(
+            crypto=self._crypto.value,
+            fiat=self._fiat.value)
+
+        return json.loads(price_json, cls=CoinMarketCapDecoder)
+
+    def __str__(self) -> str:
         try:
-            price_data = self._get_data()
+            price_data = self.get_price()
         except:
             return self._formatter.failure
 
-        return self._formatter.format(price_data)
+        return self._formatter(price_data)
 
 
 if __name__ == "__main__":
-    if os.isatty(0):
-        formatter = TtyFormatter()
-    else:
-        formatter = TmuxFormatter(3, 106, 160)
+    # TODO Allow user to override config/defaults on command line
+    config_file = os.path.expanduser("~/.quicktick")
+    try:
+        config = ConfigParser()
+        with open(config_file, "rt") as fd:
+            config.read_file(fd)
 
-    ticker = Ticker(Crypto.BTC, Fiat.GBP, formatter)
-    print(ticker.price)
+        crypto = getattr(Crypto, config.get("ticker", "crypto"))
+        fiat = getattr(Fiat, config.get("ticker", "fiat"))
+
+        template = config.get("formatter", "template")
+        up_template = config.get("formatter", "up_template")
+        stable_template = config.get("formatter", "stable_template")
+        down_template = config.get("formatter", "down_template")
+        failure = config.get("formatter", "failure")
+
+        formatter = Formatter(
+            template,
+            (up_template, stable_template, down_template),
+            failure)
+
+    except:
+        crypto = Crypto.BTC
+        fiat = Fiat.USD
+        formatter = simple_formatter
+
+    ticker = CoinMarketCapTicker(crypto, fiat, formatter)
+    print(ticker)
