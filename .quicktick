@@ -7,14 +7,14 @@ ticker:
 templates:
   simple: >
     {{ fiat.symbol }}/{{ crypto.symbol }}
-    {{ rate | float | round(2) }}
-    ({{ change | float | round(2) }}%)
+    {{ "%.2f" | format(rate | float) }}
+    ({{ "%.2f" | format(change | float) }}%)
 
   ansi: >
     {{ fiat.symbol }}/{{ crypto.symbol }}
-    {{ rate | float | round(2) }}
-    {% if (change | float) > 0 %}{{ "\033[32m" }}{{ change | float | round(2) }}%
-    {% elif (change | float) < 0 %}{{ "\033[31m" }}{{ change | float | abs | round(2) }}%
+    {{ "%.2f" | format(rate | float) }}
+    {% if (change | float) > 0 %}{{ "\033[32m" }}{{ "%.2f" | format(change | float) }}%
+    {% elif (change | float) < 0 %}{{ "\033[31m" }}{{ "%.2f" | format(change | float | abs) }}%
     {% endif %}{{ "\033[0m" }}
 
 sources:
