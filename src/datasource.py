@@ -18,7 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 import typing as T
 
 import requests
-from jinja2 import BaseLoader, Environment, Template
+from jinja2 import Template
 
 from .symbol import Symbol
 
@@ -42,12 +42,10 @@ class DataSource(object):
         @param  cryptos  Supported cryptocurrencies and their properties
         @param  fiats    Supported fiat currencies and their properties
         """
-        env = Environment(loader=BaseLoader())
-
-        self._url = env.from_string(url)
+        self._url = Template(url)
 
         self._data = {
-            key: env.from_string(template)
+            key: Template(template)
             for key, template in data.items()}
 
         self._cryptos = {

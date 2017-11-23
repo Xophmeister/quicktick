@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
-from jinja2 import BaseLoader, Environment, Template
+from jinja2 import Template
 
 from .datasource import DataSource
 from .symbol import Symbol
@@ -31,8 +31,7 @@ class Formatter(object):
 
         @param  template  Jinja2 template string
         """
-        env = Environment(loader=BaseLoader())
-        self._template = env.from_string(template)
+        self._template = Template(template)
 
     def render(self, source:DataSource, crypto:Symbol, fiat:Symbol) -> str:
         """
