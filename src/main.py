@@ -32,12 +32,12 @@ if __name__ == "__main__":
         description=description,
         formatter_class=RawDescriptionHelpFormatter)
 
-    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-V", "--version", action="version", version=version, help="show version and license information")
     parser.add_argument("--config", default="~/.quicktick", help="use alternative configuration file [%(default)s]")
-    parser.add_argument("--crypto", help="Symbol to use as the cryptocurrency")
-    parser.add_argument("--fiat", help="Symbol to use as the fiat currency")
-    parser.add_argument("--template", help="Template name or raw Jinja2 template")
-    parser.add_argument("--source", help="Source for the price data")
+    parser.add_argument("--crypto", help="symbol to use as the cryptocurrency")
+    parser.add_argument("--fiat", help="symbol to use as the fiat currency")
+    parser.add_argument("--template", help="template name or raw Jinja2 template")
+    parser.add_argument("--source", help="source for the price data")
 
     args = parser.parse_args()
 
