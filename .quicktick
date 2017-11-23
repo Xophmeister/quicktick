@@ -1,0 +1,39 @@
+ticker:
+  source: coinmarketcap
+  crypto: BTC
+  fiat: USD
+  template: simple
+
+templates:
+  simple: "{{ fiat.symbol }}/{{ crypto.symbol }} {{ rate | float | round(2) }} ({{ change | float | round(2) }}%)"
+  ansi: "{{ fiat.symbol }}/{{ crypto.symbol }} {{ rate | float | round(2) }} {{ '\\033' }}[{% if (change | float) > 0 %}32{% elif (change | float) < 0 %}31{% endif %}m{{ change | float | abs | round(2) }}%{{ '\\033' }}[0m"
+
+sources:
+  coinmarketcap:
+    url: "https://api.coinmarketcap.com/v1/ticker/{{ crypto['api_path'] }}/?convert={{ fiat.symbol }}"
+
+    data:
+      rate: "{{ json[0]['price_' + ( fiat.symbol | lower )] }}"
+      change: "{{ json[0]['percent_change_1h'] }}"
+
+    cryptos:
+      BTC:
+        api_path: bitcoin
+      BCH:
+        api_path: bitcoin-cash
+      ETH:
+        api_path: ethereum
+      LTC:
+        api_path: litecoin
+
+      # CoinMarketCap supports many more cryptocurrencies.
+      # Add them here, as required...
+
+    fiats:
+      CNY: {}
+      EUR: {}
+      GBP: {}
+      USD: {}
+
+      # CoinMarketCap supports many more fiat currencies.
+      # Add them here, as required...
