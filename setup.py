@@ -10,11 +10,6 @@ project_file = partial(os.path.join, project_dir)
 with open(project_file("README.rst"), "rt") as f:
     long_description = f.read()
 
-with open(project_file("requirements.txt"), "rt") as f:
-    requirements = map(
-        lambda req: req.split("==")[0],
-        f.readlines())
-
 setup(
     name="quicktick",
     version=__version__,
@@ -39,9 +34,11 @@ setup(
 
     packages=["quicktick"],
     python_requires=">=3.6",
-    install_requires=requirements,
+    install_requires=[
+        "Jinja2",
+        "PyYAML",
+        "requests"],
 
     data_files=[(os.path.expanduser("~"), [".quicktick"])],
 
-    entry_points={"console_scripts": ["quicktick=quicktick.main:run"]}
-)
+    entry_points={"console_scripts": ["quicktick=quicktick.main:run"]})
