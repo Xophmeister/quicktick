@@ -26,7 +26,7 @@ from .formatter import Formatter
 from .datasource import DataSource
 
 
-if __name__ == "__main__":
+def run():
     parser = ArgumentParser(
         prog="quicktick",
         description=description,
@@ -103,3 +103,6 @@ if __name__ == "__main__":
         exit(1)
 
     print(formatter.render(source, crypto, fiat))
+
+if __name__ == "__main__":
+    run()
