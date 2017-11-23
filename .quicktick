@@ -6,12 +6,12 @@ ticker:
 
 templates:
   simple: >
-    {{ fiat.symbol }}/{{ crypto.symbol }}
+    {{ fiat }}/{{ crypto }}
     {{ "%.2f" | format(rate | float) }}
     ({{ "%.2f" | format(change | float) }}%)
 
   ansi: >
-    {{ fiat.symbol }}/{{ crypto.symbol }}
+    {{ fiat }}/{{ crypto }}
     {{ "%.2f" | format(rate | float) }}
     {% if (change | float) > 0 %}{{ "\033[32m" }}{{ "%.2f" | format(change | float) }}%
     {% elif (change | float) < 0 %}{{ "\033[31m" }}{{ "%.2f" | format(change | float | abs) }}%
@@ -19,11 +19,11 @@ templates:
 
 sources:
   coinmarketcap:
-    url: https://api.coinmarketcap.com/v1/ticker/{{ crypto["api_path"] }}/?convert={{ fiat.symbol }}
+    url: https://api.coinmarketcap.com/v1/ticker/{{ crypto["api_path"] }}/?convert={{ fiat }}
 
     data:
       rate: >
-        {{ json[0]["price_" + ( fiat.symbol | lower )] }}
+        {{ json[0]["price_" + ( fiat | lower )] }}
       change: >
         {{ json[0]["percent_change_1h"] }}
 

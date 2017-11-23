@@ -33,8 +33,7 @@ class Symbol(T.Mapping[str, str]):
         self._symbol = symbol
         self._properties = properties
 
-    @property
-    def symbol(self) -> str:
+    def __str__(self) -> str:
         return self._symbol
 
     def __len__(self) -> int:
