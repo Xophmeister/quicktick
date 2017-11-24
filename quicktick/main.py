@@ -26,6 +26,10 @@ from .formatter import Formatter
 from .datasource import DataSource
 
 
+class ConfigException(BaseException):
+    """ Raised on config parsing error """
+
+
 def initialise_default_config() -> None:
     """
     Create a default configuration file in the user's home directory if
@@ -38,9 +42,12 @@ def initialise_default_config() -> None:
             f.write(default_config)
 
 
-def run():
-    initialise_default_config()
-
+def create_argument_parser() -> ArgumentParser:
+    """
+    Create the argument parser
+    
+    @return  Configured argument parser
+    """
     parser = ArgumentParser(
         prog="quicktick",
         description=description,
@@ -53,67 +60,78 @@ def run():
     parser.add_argument("--template", help="template name or raw Jinja2 template")
     parser.add_argument("--source", help="source for the price data")
 
-    args = parser.parse_args()
+    return parser
+
+
+def run():
+    initialise_default_config()
+    args = create_argument_parser().parse_args()
 
     try:
-        config_file = os.path.normpath(os.path.expanduser(args.config))
-        conf = config.load(config_file)
+        try:
+            config_file = os.path.normpath(os.path.expanduser(args.config))
+            conf = config.load(config_file)
 
-        # Minimal structural checking
-        assert "ticker" in conf
-        assert "source" in conf["ticker"]
-        assert "crypto" in conf["ticker"]
-        assert "fiat" in conf["ticker"]
-        assert "template" in conf["ticker"]
-        assert "templates" in conf
-        assert conf["templates"]
-        assert "sources" in conf
-        assert conf["sources"]
+            # Minimal structural checking
+            assert "ticker" in conf
+            assert "source" in conf["ticker"]
+            assert "crypto" in conf["ticker"]
+            assert "fiat" in conf["ticker"]
+            assert "template" in conf["ticker"]
+            assert "templates" in conf
+            assert conf["templates"]
+            assert "sources" in conf
+            assert conf["sources"]
 
-    except:
-        print(f"Couldn't read configuration from {config_file}", file=sys.stderr)
-        exit(1)
+        except FileNotFoundError:
+            raise ConfigException(f"Couldn't read configuration from {config_file}; file not found")
 
-    sources = {
-        symbol: DataSource(**parameters)
-        for symbol, parameters in conf["sources"].items()}
+        except AssertionError:
+            raise ConfigException(f"Couldn't read configuration from {config_file}; invalid structure")
 
-    try:
-        source_name = args.source or conf["ticker"]["source"]
-        source = sources[source_name]
+        try:
+            sources = {
+                symbol: DataSource(**parameters)
+                for symbol, parameters in conf["sources"].items()}
 
-    except KeyError:
-        print(f"No such data source named {source_name}", file=sys.stderr)
-        exit(1)
+        except (AttributeError, TypeError):
+            raise ConfigException(f"Couldn't read configuration from {config_file}; invalid source definition")
 
-    try:
-        crypto_symbol = args.crypto or conf["ticker"]["crypto"]
-        crypto = source.get_crypto(crypto_symbol)
+        try:
+            source_name = args.source or conf["ticker"]["source"]
+            source = sources[source_name]
 
-    except KeyError:
-        print(f"Data source does not support cryptocurrency {crypto_symbol}", file=sys.stderr)
-        exit(1)
+        except KeyError:
+            raise ConfigException(f"No such data source named {source_name}")
 
-    try:
-        fiat_symbol = args.fiat or conf["ticker"]["fiat"]
-        fiat = source.get_fiat(fiat_symbol)
+        try:
+            crypto_symbol = args.crypto or conf["ticker"]["crypto"]
+            crypto = source.get_crypto(crypto_symbol)
 
-    except KeyError:
-        print(f"Data source does not support fiat currency {fiat_symbol}", file=sys.stderr)
-        exit(1)
+        except KeyError:
+            raise ConfigException(f"Data source {source_name} does not support cryptocurrency {crypto_symbol}")
 
-    try:
-        template = conf["templates"].get(args.template, args.template) \
-                or conf["templates"][conf["ticker"]["template"]]
+        try:
+            fiat_symbol = args.fiat or conf["ticker"]["fiat"]
+            fiat = source.get_fiat(fiat_symbol)
 
-        formatter = Formatter(template)
+        except KeyError:
+            raise ConfigException(f"Data source {source_name} does not support fiat currency {fiat_symbol}")
 
-    except KeyError:
-        print(f"No such template named {template}", file=sys.stderr)
-        exit(1)
+        try:
+            template = conf["templates"].get(args.template, args.template) \
+                    or conf["templates"][conf["ticker"]["template"]]
 
-    except TemplateSyntaxError:
-        print(f"Couldn't parse template", file=sys.stderr)
+            formatter = Formatter(template)
+
+        except KeyError:
+            raise ConfigException(f"No such template named {template}")
+
+        except TemplateSyntaxError:
+            raise ConfigException(f"Couldn't parse template")
+
+    except ConfigException as e:
+        print(e, file=sys.stderr)
         exit(1)
 
     print(formatter.render(source, crypto, fiat))
