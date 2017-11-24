@@ -39,6 +39,4 @@ setup(
         "PyYAML",
         "requests"],
 
-    data_files=[(os.path.expanduser("~"), [".quicktick"])],
-
     entry_points={"console_scripts": ["quicktick=quicktick.main:run"]})

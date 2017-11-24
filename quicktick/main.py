@@ -26,7 +26,21 @@ from .formatter import Formatter
 from .datasource import DataSource
 
 
+def initialise_default_config() -> None:
+    """
+    Create a default configuration file in the user's home directory if
+    it doesn't already exist
+    """
+    config_file = os.path.join(os.path.expanduser("~"), ".quicktick")
+    if not os.path.exists(config_file):
+        from . import default_config
+        with open(config_file, "wt") as f:
+            f.write(default_config)
+
+
 def run():
+    initialise_default_config()
+
     parser = ArgumentParser(
         prog="quicktick",
         description=description,
@@ -103,6 +117,7 @@ def run():
         exit(1)
 
     print(formatter.render(source, crypto, fiat))
+
 
 if __name__ == "__main__":
     run()
